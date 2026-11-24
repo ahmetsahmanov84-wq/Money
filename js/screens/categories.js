@@ -56,7 +56,7 @@ export const categories = {
     const dm = host.querySelector('[data-delmode]');
     const syncMode = () => {
       dm.classList.toggle('on', editMode);
-      dm.querySelector('span').textContent = editMode ? 'Готово' : 'Удалить';
+      dm.innerHTML = editMode ? `${icon('check')}<span>Готово</span>` : `${icon('trash')}<span>Удалить</span>`;
       host.querySelector('[data-delhint]').hidden = !editMode;
     };
     dm.onclick = () => { editMode = !editMode; syncMode(); this.refresh(host); };
