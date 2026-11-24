@@ -132,6 +132,29 @@ async function start() {
 
 start();
 
+// iOS: в установленном приложении со строкой состояния «black-translucent» высота окна
+// иногда считается без высоты строки состояния, и под нижним меню остаётся пустая полоса.
+// Узнаём эту ошибку по точному совпадению недостающей высоты с верхним отступом и растягиваем приложение на весь экран.
+function fitStandalone() {
+  const standalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+  const root = document.documentElement, app = document.getElementById('app');
+  root.style.height = document.body.style.height = app.style.height = '';
+  if (!standalone) return;
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed;top:0;height:0;padding-top:var(--safe-top);visibility:hidden';
+  document.body.append(probe);
+  const top = probe.offsetHeight; probe.remove();
+  const landscape = innerWidth > innerHeight;
+  const full = landscape ? Math.min(screen.width, screen.height) : Math.max(screen.width, screen.height);
+  const gap = full - innerHeight;
+  if (top > 0 && gap > 0 && Math.abs(gap - top) <= 2) {
+    root.style.height = document.body.style.height = app.style.height = full + 'px';
+  }
+}
+fitStandalone();
+addEventListener('resize', () => setTimeout(fitStandalone, 50));
+addEventListener('orientationchange', () => setTimeout(fitStandalone, 300));
+
 // Офлайн-режим
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   window.addEventListener('load', () => {

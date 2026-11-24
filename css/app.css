@@ -1,5 +1,6 @@
 /* Money Tracker — общий стиль по утверждённому макету */
 :root {
+  --safe-top: env(safe-area-inset-top);
   --bg: #fdece7;
   --bg-2: #fbe4db;
   --card: #fff7f3;

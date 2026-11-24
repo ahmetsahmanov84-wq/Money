@@ -1,5 +1,5 @@
 // Service Worker: офлайн-работа после первой загрузки.
-const VERSION = 'mt-v2.2.0';
+const VERSION = 'mt-v2.2.1';
 const ASSETS = [
   './',
   './index.html',
