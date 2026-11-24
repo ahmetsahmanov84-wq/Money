@@ -1,9 +1,9 @@
 // Экран «Долги»: выданные и полученные долги, частичные и полные возвраты.
 import { db, STORES } from '../db.js';
 import { icon, logo } from '../icons.js';
-import { money, shortDate, longDate, hhmm, parseAmount, formatAmountInput, financialDay } from '../format.js';
+import { money, shortDate, longDate, hhmm, parseAmount, formatAmountInput, financialDay, origLabel } from '../format.js';
 import { esc, h, openSheet, closeSheet, toast } from '../ui.js';
-import { debtForm } from '../forms.js';
+import { debtForm, curSelect, readMoney } from '../forms.js';
 
 const state = { tab: 'given' };
 
@@ -108,7 +108,7 @@ async function openDebt(id) {
   const body = h(`<div class="debt-detail">
     <div class="dd-top">${pill(s.status)}</div>
     <div class="detail-amt rest">${money(s.remaining)}</div>
-    <p class="ro-note">Осталось вернуть из ${money(debt.amount)}</p>
+    <p class="ro-note">Осталось вернуть из ${money(debt.amount)}${origLabel(debt) ? ` (введено: ${origLabel(debt)})` : ''}</p>
     <div class="card dd-info">
       <div><span>Тип</span><b>${debt.direction === 'given' ? 'Я дал' : 'Я взял'}</b></div>
       <div><span>${t.issued}</span><b>${longDate(new Date(debt.ts))}</b></div>
@@ -124,14 +124,14 @@ async function openDebt(id) {
       </div>
       <form class="dd-part" data-partform hidden novalidate>
         <div class="field"><label>Сумма возврата</label>
-          <div class="amount-wrap"><input class="input" name="amount" inputmode="decimal" autocomplete="off" placeholder="0"><span class="cur">₺</span></div></div>
+          <div class="amount-wrap"><input class="input" name="amount" inputmode="decimal" autocomplete="off" placeholder="0">${curSelect()}</div></div>
         <p class="form-error"></p>
         <button class="btn-primary short" type="submit">Сохранить возврат</button>
       </form>` : ''}
     <div class="day-head">История возвратов</div>
     <ul class="op-list card dd-hist">${s.returns.length ? s.returns.slice().reverse().map(r => {
       const d = new Date(r.ts);
-      return `<li class="dd-ret"><span><b>${r.full ? 'Полный возврат' : 'Частичный возврат'}</b><small>${longDate(d)}, ${hhmm(d)}</small></span><span class="pos">${money(r.amount)}</span><button type="button" class="dd-del" data-delret="${r.id}" aria-label="Удалить возврат">${icon('trash')}</button></li>`;
+      return `<li class="dd-ret"><span><b>${r.full ? 'Полный возврат' : 'Частичный возврат'}</b><small>${longDate(d)}, ${hhmm(d)}</small></span><span class="pos">${money(r.amount)}${origLabel(r) ? `<small>${origLabel(r)}</small>` : ''}</span><button type="button" class="dd-del" data-delret="${r.id}" aria-label="Удалить возврат">${icon('trash')}</button></li>`;
     }).join('') : '<li class="empty compact">Возвратов пока нет</li>'}</ul>
     <button class="btn-ghost wide" type="button" data-edit>Изменить долг</button>
     <button class="btn-danger" type="button" data-deldebt>Удалить долг</button>
@@ -153,12 +153,15 @@ async function openDebt(id) {
     pf.addEventListener('submit', async e => {
       e.preventDefault();
       const err = pf.querySelector('.form-error');
-      const amount = parseAmount(inp.value);
+      const m = readMoney(pf);
       // перечитываем остаток прямо перед записью, чтобы не было двойного учёта
       const fresh = debtState(debt, (await db.all(STORES.debtReturns)));
+      // погрешность пересчёта валюты (до 1%) не должна мешать закрыть долг
+      if (m.amount > 0 && Math.abs(m.amount - fresh.remaining) <= Math.max(0.05, fresh.remaining * 0.01)) m.amount = fresh.remaining;
+      const amount = m.amount;
       if (!(amount > 0)) { err.textContent = 'Введите сумму больше нуля'; return; }
       if (amount > fresh.remaining) { err.textContent = `Нельзя вернуть больше остатка (${money(fresh.remaining)})`; return; }
-      await db.put(STORES.debtReturns, { debtId: id, amount, ts: Date.now(), full: amount === fresh.remaining });
+      await db.put(STORES.debtReturns, { debtId: id, ...m, amount, ts: Date.now(), full: amount === fresh.remaining });
       toast(amount === fresh.remaining ? 'Долг полностью возвращён' : 'Возврат сохранён');
       openDebt(id);
     });

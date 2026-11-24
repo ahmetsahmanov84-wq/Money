@@ -1,5 +1,5 @@
 // Service Worker: офлайн-работа после первой загрузки.
-const VERSION = 'mt-v2.0.0';
+const VERSION = 'mt-v2.1.0';
 const ASSETS = [
   './',
   './index.html',
@@ -21,6 +21,7 @@ const ASSETS = [
   './js/screens/settings.js',
   './js/security.js',
   './js/export.js',
+  './js/fx.js',
   './assets/img/hero-home.png',
   './assets/img/hero-categories.png',
   './assets/img/hero-income.png',

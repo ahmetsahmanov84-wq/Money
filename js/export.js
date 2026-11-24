@@ -1,9 +1,10 @@
 // Экспорт (CSV, PDF) и импорт данных. Работает офлайн, без внешних библиотек.
 import { db, STORES, uid } from './db.js';
-import { EXPENSE_CATEGORIES } from './categories.js';
+import { EXPENSE_CATEGORIES, addCategory } from './categories.js';
 import { money, longDate, hhmm, toDateInput, monthRange, monthTitle, pct } from './format.js';
 
-const CSV_HEAD = ['id', 'type', 'date', 'time', 'title', 'category', 'amount', 'status', 'from', 'to', 'note'];
+const CSV_HEAD = ['id', 'type', 'date', 'time', 'title', 'category', 'amount', 'status', 'from', 'to', 'note', 'currency', 'original'];
+const CSV_HEAD_OLD = 11; // файлы прошлой версии без столбцов валюты тоже принимаются
 const TYPE_RU = { income: 'Доход', expense: 'Расход', transfer: 'Перевод' };
 
 const catName = id => (EXPENSE_CATEGORIES.find(c => c.id === id) || {}).name || '';
@@ -32,7 +33,7 @@ export async function exportCsv() {
     const d = new Date(o.ts);
     rows.push([o.id, TYPE_RU[o.type] || o.type, toDateInput(d), hhmm(d), o.title || '', o.type === 'expense' ? catName(o.categoryId) : '',
       String(o.amount).replace('.', ','), o.type === 'income' ? (o.status === 'expected' ? 'Ожидается' : 'Получен') : '',
-      o.from || '', o.to || '', o.note || ''].map(q).join(';'));
+      o.from || '', o.to || '', o.note || '', o.currency || 'TRY', String(o.origAmount ?? o.amount).replace('.', ',')].map(q).join(';'));
   }
   // BOM, чтобы Excel правильно открыл кириллицу
   const blob = new Blob(['﻿' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' });
@@ -63,7 +64,7 @@ export async function analyzeImport(text) {
   const rows = parseCsv(text);
   if (!rows.length) throw new Error('Файл пустой');
   const head = rows[0].map(h => h.trim());
-  if (CSV_HEAD.some((h, i) => head[i] !== h)) throw new Error('Неверная структура файла. Используйте CSV, выгруженный из Money Tracker.');
+  if (CSV_HEAD.slice(0, CSV_HEAD_OLD).some((h, i) => head[i] !== h)) throw new Error('Неверная структура файла. Используйте CSV, выгруженный из Money Tracker.');
   const existing = await db.all(STORES.operations);
   const ids = new Set(existing.map(o => o.id));
   const sig = o => `${o.type}|${o.ts}|${o.amount}|${(o.title || '').trim().toLowerCase()}`;
@@ -72,7 +73,7 @@ export async function analyzeImport(text) {
   const ok = [], errors = [], dupes = [];
   rows.slice(1).forEach((r, i) => {
     const line = i + 2;
-    const [id, type, date, time, title, category, amount, status, from, to, note] = r;
+    const [id, type, date, time, title, category, amount, status, from, to, note, currency, original] = r;
     const t = TYPE[(type || '').trim()];
     const a = Math.round(parseFloat(String(amount).replace(/\s/g, '').replace(',', '.')) * 100) / 100;
     const dm = /^(\d{4})-(\d{2})-(\d{2})$/.exec((date || '').trim());
@@ -82,7 +83,13 @@ export async function analyzeImport(text) {
     if (!dm || !tm) return errors.push(`Строка ${line}: неверная дата или время`);
     const ts = new Date(+dm[1], +dm[2] - 1, +dm[3], +tm[1], +tm[2]).getTime();
     const op = { id: (id || '').trim() || uid(), type: t, ts, amount: a, title: (title || '').trim() || (TYPE_RU[t]), note: (note || '').trim() };
-    if (t === 'expense') { op.categoryId = catIdByName((category || '').trim()); if (!op.categoryId) return errors.push(`Строка ${line}: неизвестная категория «${category}»`); }
+    const cur = (currency || '').trim().toUpperCase(); const orig = parseFloat(String(original || '').replace(/\s/g, '').replace(',', '.'));
+    if (cur && cur !== 'TRY' && orig > 0) { op.currency = cur; op.origAmount = Math.round(orig * 100) / 100; } else { op.currency = 'TRY'; op.origAmount = a; }
+    if (t === 'expense') {
+      op.categoryId = catIdByName((category || '').trim());
+      // Неизвестная категория станет своей категорией при импорте
+      if (!op.categoryId) { if (!(category || '').trim()) return errors.push(`Строка ${line}: не указана категория`); op.newCategory = category.trim(); op.categoryId = 'new:' + op.newCategory; }
+    }
     if (t === 'income') op.status = (status || '').trim() === 'Ожидается' ? 'expected' : 'received';
     if (t === 'transfer') { op.from = (from || '').trim() || 'main'; op.to = (to || '').trim() || 'savings'; }
     if (ids.has(op.id) || sigs.has(sig(op))) dupes.push(op); else ok.push(op);
@@ -91,7 +98,13 @@ export async function analyzeImport(text) {
 }
 
 export async function applyImport(ops) {
-  for (const o of ops) await db.put(STORES.operations, o);
+  for (const o of ops) {
+    if (o.newCategory) {
+      const id = catIdByName(o.newCategory) || (await addCategory(o.newCategory)).cat.id;
+      o.categoryId = id; delete o.newCategory;
+    }
+    await db.put(STORES.operations, o);
+  }
   return ops.length;
 }
 

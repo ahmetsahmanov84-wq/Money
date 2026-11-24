@@ -8,18 +8,46 @@ const MONTHS_SHORT = ['янв.', 'февр.', 'марта', 'апр.', 'мая',
 const nf0 = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 0 });
 const nf2 = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-/** 125000 → «125 000 ₺»; sign: '+', '-' или '' */
-export function money(value, sign = '') {
-  const abs = Math.abs(Math.round(value * 100) / 100);
+/* ---------- Валюты ----------
+   Все суммы хранятся в лирах (поле amount), чтобы итоги всегда были сопоставимы.
+   Сумма, введённая в другой валюте, при сохранении переводится в лиры по курсу;
+   исходная сумма и валюта сохраняются в операции (origAmount, currency).
+   Показ — в основной валюте из Настроек по текущему курсу. */
+export const CURRENCIES = {
+  TRY: { sym: '₺', name: 'Турецкая лира' },
+  RUB: { sym: '₽', name: 'Российский рубль' },
+  USD: { sym: '$', name: 'Доллар США' },
+  EUR: { sym: '€', name: 'Евро' },
+};
+// Сколько единиц валюты за 1 лиру. Стартовые значения — примерные, до первой загрузки курса.
+const fx = { base: 'TRY', rates: { TRY: 1, RUB: 1.9, USD: 0.024, EUR: 0.021 } };
+export function setFx(base, rates) {
+  if (base && CURRENCIES[base]) fx.base = base;
+  if (rates) for (const k of Object.keys(CURRENCIES)) if (rates[k] > 0) fx.rates[k] = rates[k];
+  fx.rates.TRY = 1;
+}
+export const baseCurrency = () => fx.base;
+export const curSym = (c = fx.base) => CURRENCIES[c]?.sym || '₺';
+/** Сумма в валюте cur → лиры */
+export const toTry = (v, cur = 'TRY') => Math.round(v / (fx.rates[cur] || 1) * 100) / 100;
+/** Лиры → валюта cur (по умолчанию основная) */
+export const fromTry = (v, cur = fx.base) => Math.round(v * (fx.rates[cur] || 1) * 100) / 100;
+/** Исходная сумма операции, если она вводилась не в лирах: «100 $» */
+export const origLabel = o => o && o.currency && o.currency !== 'TRY' && o.origAmount ? money(o.origAmount, '', o.currency, true) : '';
+
+/** 125000 (в лирах) → «125 000 ₺» в основной валюте; sign: '+', '-' или '' */
+export function money(value, sign = '', cur = fx.base, raw = false) {
+  const v = raw ? value : fromTry(value, cur);
+  const abs = Math.abs(Math.round(v * 100) / 100);
   const body = (Number.isInteger(abs) ? nf0 : nf2).format(abs).replace(/ |\s/g, NBSP);
   const s = abs === 0 ? '' : sign === '+' ? '+' : sign === '-' ? MINUS : '';
-  return `${s}${body}${NBSP}₺`;
+  return `${s}${body}${NBSP}${curSym(cur)}`;
 }
 
 /** Строку пользователя («1 250,50») → число */
 export function parseAmount(str) {
   if (typeof str !== 'string') return Number(str) || 0;
-  const clean = str.replace(/[\s  ₺]/g, '').replace(',', '.');
+  const clean = str.replace(/[\s  ₺₽$€]/g, '').replace(',', '.');
   if (!/^\d*\.?\d{0,2}$/.test(clean) || clean === '' || clean === '.') return NaN;
   return Math.round(parseFloat(clean) * 100) / 100;
 }

@@ -4,7 +4,7 @@ import { icon, logo } from '../icons.js';
 import { EXPENSE_CATEGORIES } from '../categories.js';
 import { money, dayRange, financialDay, pct } from '../format.js';
 import { esc } from '../ui.js';
-import { expenseForm } from '../forms.js';
+import { expenseForm, categoryForm } from '../forms.js';
 
 function expenseRow(c, spent = 0, limit = 0, share = '0%') {
   const over = limit > 0 && spent > limit;
@@ -29,12 +29,14 @@ export const categories = {
         <img class="hero-img bag" src="assets/img/hero-categories.png" alt="" width="532" height="308">
       </header>
       <div class="card cat-card"><ul class="op-list" data-list>${EXPENSE_CATEGORIES.map(c => expenseRow(c)).join('')}</ul></div>
+      <button class="btn-ghost wide add-cat" type="button" data-addcat>${icon('plus')}<span>Добавить категорию</span></button>
     </section>`;
     host.querySelector('.back').onclick = () => ctx.back();
     host.querySelector('[data-list]').addEventListener('click', e => {
       const row = e.target.closest('.crow');
       if (row) expenseForm(financialDay(), null, { categoryId: row.dataset.cat, compact: true });
     });
+    host.querySelector('[data-addcat]').onclick = () => categoryForm();
     return this.refresh(host);
   },
 

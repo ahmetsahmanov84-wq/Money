@@ -10,6 +10,8 @@ import { debts } from './screens/debts.js';
 import { calendar } from './screens/calendar.js';
 import { settings, limits } from './screens/settings.js';
 import { initLock } from './security.js';
+import { loadCategories } from './categories.js';
+import { loadFx, refreshFx } from './fx.js';
 
 // Порядок вкладок строго по ТЗ
 const TABS = [
@@ -49,6 +51,7 @@ for (const id of Object.keys(STUB_INFO)) SCREENS[id] = stub(id);
 const host = document.getElementById('host');
 const tabbar = document.getElementById('tabbar');
 let currentId = null;
+let activeTab = null;
 const history = [];
 
 const ctx = {
@@ -61,19 +64,35 @@ function go(id, params = {}, push = true) {
   if (history.length > 20) history.shift();
   currentId = id;
   const tabId = TABS.some(t => t.id === id) ? id : (PARENT[id] || 'home');
+  const prevIdx = TABS.findIndex(t => t.id === activeTab);
+  const nextIdx = TABS.findIndex(t => t.id === tabId);
+  activeTab = tabId;
   tabbar.querySelectorAll('.tab').forEach(b => {
     const on = b.dataset.tab === tabId;
     b.classList.toggle('active', on);
     if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   });
   if (id === 'home' && params.day) home.setDay(params.day);
+  moveIndicator();
   SCREENS[id].render(host, ctx, params);
+  // Направление анимации: вправо/влево по порядку вкладок
+  const scr = host.querySelector('.screen');
+  if (scr && prevIdx >= 0 && nextIdx !== prevIdx) scr.classList.add(nextIdx > prevIdx ? 'from-right' : 'from-left');
   host.scrollTop = 0;
 }
 
+function moveIndicator() {
+  const ind = tabbar.querySelector('.tab-ind');
+  const b = tabbar.querySelector('.tab.active');
+  if (!ind || !b) return;
+  ind.style.width = b.offsetWidth + 'px';
+  ind.style.transform = `translateX(${b.offsetLeft}px)`;
+}
+window.addEventListener('resize', moveIndicator);
+
 function buildTabbar() {
   tabbar.innerHTML = TABS.map(t =>
-    `<button class="tab" data-tab="${t.id}">${icon(t.icon)}<span>${t.label}</span></button>`).join('');
+    `<button class="tab" data-tab="${t.id}">${icon(t.icon)}<span>${t.label}</span></button>`).join('') + '<span class="tab-ind" aria-hidden="true"></span>';
   tabbar.addEventListener('click', e => {
     const b = e.target.closest('.tab');
     if (!b) return;
@@ -87,6 +106,8 @@ async function start() {
   try {
     await openDB();
     setDayStart(await getSetting('dayStartMinutes'));
+    await loadCategories();
+    await loadFx();
   } catch (e) {
     console.error(e);
     host.innerHTML = `<div class="card stub" style="margin:2rem 1rem"><b>Не удалось открыть хранилище</b>Проверьте, что в Safari не включён режим «Частный доступ».</div>`;
@@ -94,6 +115,8 @@ async function start() {
   }
   await initLock();
   go('home', {}, false);
+  refreshFx();
+  window.addEventListener('online', () => refreshFx());
 
   // Обновление экрана при любом изменении данных
   onChange(store => {
@@ -104,7 +127,7 @@ async function start() {
   // Смена финансового дня в 00:00 без перезапуска
   const tick = () => { const s = SCREENS[currentId]; if (s && s.tick) s.tick(host); };
   setInterval(tick, 30000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) tick(); });
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { tick(); refreshFx(); } });
 }
 
 start();

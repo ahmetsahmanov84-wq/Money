@@ -2,7 +2,7 @@
 import { db, STORES } from '../db.js';
 import { icon, logo } from '../icons.js';
 import { opIcon } from '../categories.js';
-import { money, longDate, relativeStamp, dayRange, addDays, financialDay, sameDay } from '../format.js';
+import { money, longDate, relativeStamp, dayRange, addDays, financialDay, sameDay, origLabel } from '../format.js';
 import { esc, fitText } from '../ui.js';
 import { incomeForm, expenseForm, transferForm, debtForm, openOperation, allOperationsSheet } from '../forms.js';
 
@@ -14,7 +14,7 @@ export function opRow(op) {
   const cls = expected ? 'wait' : op.type === 'income' ? 'pos' : 'neg';
   return `<li><button class="op" data-op="${op.id}">
     <span class="op-ico">${icon(opIcon(op))}</span>
-    <span class="op-main"><div class="op-title">${esc(op.title)}</div><div class="op-sub">${expected ? 'Ожидается · ' : ''}${relativeStamp(op.ts)}</div></span>
+    <span class="op-main"><div class="op-title">${esc(op.title)}</div><div class="op-sub">${expected ? 'Ожидается · ' : ''}${relativeStamp(op.ts)}${origLabel(op) ? ' · ' + origLabel(op) : ''}</div></span>
     <span class="op-amt ${cls}">${money(op.amount, sign)}</span>
     <span class="op-chev">${icon('chevR')}</span>
   </button></li>`;

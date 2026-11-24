@@ -2,7 +2,7 @@
 import { db, STORES } from '../db.js';
 import { icon, logo } from '../icons.js';
 import { EXPENSE_CATEGORIES } from '../categories.js';
-import { money, longDate, shortDate, hhmm, dayStartOf, financialDay, addDays, monthRange, monthTitle, pct } from '../format.js';
+import { money, longDate, shortDate, hhmm, dayStartOf, financialDay, addDays, monthRange, monthTitle, pct, origLabel, fromTry } from '../format.js';
 import { esc, fitText } from '../ui.js';
 
 // Цвета категорий на круговой диаграмме (первые шесть — как в макете)
@@ -170,7 +170,7 @@ export const analytics = {
     be.className = 'sum-val ' + (bal < 0 ? 'neg' : 'pos');
     host.querySelectorAll('.sum-val').forEach(el => fitText(el));
 
-    const parts = EXPENSE_CATEGORIES.map((c, i) => ({ id: c.id, name: c.name, color: COLORS[i], value: byCat[c.id] || 0 }));
+    const parts = EXPENSE_CATEGORIES.map((c, i) => ({ id: c.id, name: c.name, color: COLORS[i] || `hsl(${(i * 47 + 15) % 360} 70% 55%)`, value: byCat[c.id] || 0 }));
     $('[data-pie]').innerHTML = donut(parts, exp) + `<div class="pie-center" data-ptotal>${money(exp)}</div>`;
     fitText($('[data-ptotal]'), 0.55);
     $('[data-legend]').innerHTML = parts.map(p => `<li><button data-cat="${p.id}"><i style="background:${p.color}"></i><span class="lg-name">${esc(p.name)}</span><span class="lg-pct">${pct(p.value, exp)}</span></button></li>`).join('');
@@ -183,7 +183,7 @@ export const analytics = {
     const max = Math.max(1, ...bs.map(b => b.value));
     $('[data-bars]').className = 'bars n' + bs.length;
     $('[data-bars]').innerHTML = bs.map(b => `<div class="bar${b.current ? ' cur' : ''}">
-      <span class="bv">${b.value ? short(b.value) : '0'}</span>
+      <span class="bv">${b.value ? short(fromTry(b.value)) : '0'}</span>
       <span class="bb"><span style="height:${Math.max(3, b.value / max * 100)}%"></span></span>
       <span class="bl">${b.label}${b.sub ? `<small>${b.sub}</small>` : ''}</span></div>`).join('');
   },
@@ -236,7 +236,7 @@ export const categoryDetail = {
     $('[data-count]').textContent = `${n} ${n % 10 === 1 && n % 100 !== 11 ? 'операция' : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'операции' : 'операций'}`;
     $('[data-list]').innerHTML = n ? ops.map(o => {
       const d = new Date(o.ts);
-      return `<li class="cd-row"><div class="cd-main"><div class="op-title">${esc(o.title)}</div><div class="op-sub">${shortDate(d)}, ${hhmm(d)}</div>${o.note ? `<div class="cd-note">${esc(o.note)}</div>` : ''}</div><span class="op-amt neg">${money(o.amount, '-')}</span></li>`;
+      return `<li class="cd-row"><div class="cd-main"><div class="op-title">${esc(o.title)}</div><div class="op-sub">${shortDate(d)}, ${hhmm(d)}${origLabel(o) ? ' · ' + origLabel(o) : ''}</div>${o.note ? `<div class="cd-note">${esc(o.note)}</div>` : ''}</div><span class="op-amt neg">${money(o.amount, '-')}</span></li>`;
     }).join('') : `<li class="empty compact">${all ? 'Расходов в этой категории пока нет' : 'Расходов за этот период нет'}</li>`;
   },
 };

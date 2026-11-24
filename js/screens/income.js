@@ -1,7 +1,7 @@
 // Экран «Доходы»
 import { db, STORES } from '../db.js';
 import { icon, logo } from '../icons.js';
-import { money, monthRange, monthTitle, financialDay, shortDate, hhmm } from '../format.js';
+import { money, monthRange, monthTitle, financialDay, shortDate, hhmm, origLabel } from '../format.js';
 import { esc } from '../ui.js';
 import { incomeForm, openOperation } from '../forms.js';
 
@@ -21,7 +21,7 @@ function row(op) {
   return `<li><button class="op" data-op="${op.id}">
     <span class="op-ico">${icon(incomeIcon(op.title))}</span>
     <span class="op-main"><div class="op-title">${esc(op.title)}</div>
-      <div class="op-sub">${shortDate(d)}, ${hhmm(d)}</div></span>
+      <div class="op-sub">${shortDate(d)}, ${hhmm(d)}${origLabel(op) ? ' · ' + origLabel(op) : ''}</div></span>
     <span class="amt-col"><span class="op-amt ${expected ? 'wait' : 'pos'}">${money(op.amount, '+')}</span><span class="st ${expected ? 'st-wait' : 'st-ok'}">${expected ? 'Ожидается' : 'Получен'}</span></span>
     <span class="op-chev">${icon('chevR')}</span>
   </button></li>`;
@@ -49,7 +49,7 @@ export const income = {
         <span class="inc-ico">${icon('trend')}</span>
         <div class="inc-main">
           <div class="inc-label">Общий доход</div>
-          <div class="inc-val pos" data-total>0&nbsp;₺</div>
+          <div class="inc-val pos" data-total>${money(0)}</div>
           <div class="inc-exp" data-expected></div>
         </div>
       </div>

@@ -3,7 +3,7 @@
 // Закрытость вычисляется из текущей даты, поэтому после долгого отсутствия все прошедшие дни уже закрыты.
 import { db, STORES } from '../db.js';
 import { icon, logo } from '../icons.js';
-import { money, longDate, hhmm, financialDay, dayRange, monthTitle, sameDay } from '../format.js';
+import { money, longDate, hhmm, financialDay, dayRange, monthTitle, sameDay, origLabel } from '../format.js';
 import { esc, h, openSheet } from '../ui.js';
 import { opIcon } from '../categories.js';
 import { openOperation } from '../forms.js';
@@ -145,7 +145,7 @@ async function openReport(day) {
       const expected = o.type === 'income' && o.status === 'expected';
       return `<li><button class="rep-row" data-op="${o.id}" type="button">
         <span class="op-ico">${icon(opIcon(o))}</span>
-        <span class="op-main"><div class="op-title">${esc(o.title)}</div><div class="op-sub">${hhmm(new Date(o.ts))}${expected ? ' · Ожидается' : ''}</div>${o.note ? `<div class="cd-note">${esc(o.note)}</div>` : ''}</span>
+        <span class="op-main"><div class="op-title">${esc(o.title)}</div><div class="op-sub">${hhmm(new Date(o.ts))}${expected ? ' · Ожидается' : ''}${origLabel(o) ? ' · ' + origLabel(o) : ''}</div>${o.note ? `<div class="cd-note">${esc(o.note)}</div>` : ''}</span>
         <span class="op-amt ${expected ? 'wait' : o.type === 'income' ? 'pos' : 'neg'}">${money(o.amount, o.type === 'income' ? '+' : '-')}</span>
       </button></li>`;
     }).join('') : '<li class="empty compact">Операций за этот день нет</li>'}</ul>

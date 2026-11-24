@@ -2,7 +2,8 @@
 import { db, STORES, getSetting, setSetting } from '../db.js';
 import { icon, logo } from '../icons.js';
 import { EXPENSE_CATEGORIES } from '../categories.js';
-import { money, parseAmount, formatAmountInput, setDayStart } from '../format.js';
+import { money, parseAmount, formatAmountInput, setDayStart, CURRENCIES, baseCurrency, curSym, setFx, fromTry, toTry, longDate, hhmm } from '../format.js';
+import { refreshFx } from '../fx.js';
 import { esc, h, openSheet, closeSheet, toast } from '../ui.js';
 import { exportCsv, exportPdf, analyzeImport, applyImport } from '../export.js';
 import { setPassword, checkPassword, disableLock, faceIdAvailable, enrollFaceId } from '../security.js';
@@ -42,12 +43,12 @@ export const settings = {
     body.innerHTML = `
       <div class="card sgroup">
         <div class="sg-head"><span class="sg-ico">${icon('coins')}</span>Учёт и валюта</div>
-        ${row('<b class="lira">₺</b>', 'Валюта', 'Турецкая лира (₺)', 'data-a="currency"')}
+        ${row(`<b class="lira">${curSym()}</b>`, 'Основная валюта', `${CURRENCIES[baseCurrency()].name} (${curSym()})`, 'data-a="currency"')}
         ${row(icon('calendar'), 'Начало финансового дня', `<b>${minToHHMM(Number(dayStart) || 0)}</b>`, 'data-a="daystart"')}
       </div>
       <div class="card sgroup">
         <div class="sg-head"><span class="sg-ico">${icon('target')}</span>Бюджеты и лимиты</div>
-        ${row(icon('bars'), 'Лимиты по категориям', limits.length ? `Задано: ${limits.length} из 8` : 'Настроить лимиты', 'data-a="limits"')}
+        ${row(icon('bars'), 'Лимиты по категориям', limits.length ? `Задано: ${limits.length} из ${EXPENSE_CATEGORIES.length}` : 'Настроить лимиты', 'data-a="limits"')}
         ${row(icon('wallet'), 'Ежемесячный бюджет', budget ? `<b class="org">${money(budget)}</b>` : 'Не задан', 'data-a="limits"')}
       </div>
       <div class="card sgroup">
@@ -77,12 +78,30 @@ export const settings = {
 };
 
 /* ---------- Учёт и валюта ---------- */
-function currencySheet() {
+async function currencySheet() {
+  const fxRec = await getSetting('fxRates');
+  const base = baseCurrency();
+  const rate = k => { const v = fromTry(toTry(1, k), base); return `1 ${curSym(k)} = ${money(v, '', base, true)}`; };
   const b = h(`<div>
-    <div class="card choice-list"><button class="choice on" type="button">${icon('check')}<span>Турецкая лира (₺) · TRY</span></button></div>
-    <p class="hint">Все суммы хранятся и показываются в турецких лирах. Другие валюты не подключены: без отдельного механизма обменных курсов существующие суммы не пересчитываются.</p>
+    <div class="card choice-list">${Object.entries(CURRENCIES).map(([k, c]) =>
+      `<button class="choice${k === base ? ' on' : ''}" type="button" data-cur="${k}">${k === base ? icon('check') : '<span class="ch-sp"></span>'}<span>${c.name} (${c.sym}) · ${k}</span></button>`).join('')}</div>
+    <p class="hint">В основной валюте показываются все итоги, балансы и отчёты. При вводе любой суммы можно выбрать ₺ ₽ $ €: сумма пересчитается по курсу на момент сохранения.</p>
+    <div class="day-head">Курс</div>
+    <div class="card rep-sum fx-list">${Object.keys(CURRENCIES).filter(k => k !== base).map(k => `<div><span>${CURRENCIES[k].name}</span><b>${rate(k)}</b></div>`).join('')}</div>
+    <p class="hint" data-fxinfo>${fxRec ? `Курс обновлён ${longDate(new Date(fxRec.date))}, ${hhmm(new Date(fxRec.date))}. Без интернета используется этот курс.` : 'Курс ещё не загружен: пока используются примерные значения. Подключитесь к интернету.'}</p>
+    <button class="btn-ghost wide" type="button" data-fxup>Обновить курс</button>
   </div>`);
-  b.querySelector('.choice').onclick = () => closeSheet();
+  b.querySelectorAll('[data-cur]').forEach(x => x.onclick = async () => {
+    setFx(x.dataset.cur);
+    await setSetting('currency', x.dataset.cur);
+    closeSheet(); toast(`Основная валюта: ${CURRENCIES[x.dataset.cur].name}`);
+  });
+  b.querySelector('[data-fxup]').onclick = async () => {
+    const info = b.querySelector('[data-fxinfo]'); info.textContent = 'Загрузка курса…';
+    const res = await refreshFx(true);
+    if (res.ok) { closeSheet(); toast('Курс обновлён'); currencySheet(); }
+    else info.textContent = 'Не удалось загрузить курс. Проверьте интернет и попробуйте ещё раз.';
+  };
   openSheet('Валюта', b);
 }
 
@@ -219,7 +238,7 @@ export const limits = {
   async render(host, ctx) {
     const [budget, list] = await Promise.all([getSetting('monthlyBudget'), db.all(STORES.limits)]);
     const lim = id => (list.find(l => l.id === id) || {}).amount || '';
-    const val = v => v ? formatAmountInput(String(v).replace('.', ',')) : '';
+    const val = v => { if (!v) return ''; let x = fromTry(v); if (Math.abs(x - Math.round(x)) < 0.02) x = Math.round(x); return formatAmountInput(String(x).replace('.', ',')); };
     host.innerHTML = `<section class="screen limits">
       <header class="hero small">
         <div class="brand"><button class="back" aria-label="Назад">${icon('chevL')}</button>${logo()}<span>Money Tracker</span></div>
@@ -228,11 +247,11 @@ export const limits = {
       </header>
       <form novalidate>
         <div class="card lim-card">
-          <label class="lim-row"><span class="op-ico">${icon('wallet')}</span><span class="lim-l">Ежемесячный бюджет</span><span class="lim-in"><input class="input" name="budget" inputmode="decimal" placeholder="0" value="${val(budget)}"><i>₺</i></span></label>
+          <label class="lim-row"><span class="op-ico">${icon('wallet')}</span><span class="lim-l">Ежемесячный бюджет</span><span class="lim-in"><input class="input" name="budget" inputmode="decimal" placeholder="0" value="${val(budget)}"><i>${curSym()}</i></span></label>
         </div>
         <div class="day-head">Лимиты по категориям</div>
         <div class="card lim-card">
-          ${EXPENSE_CATEGORIES.map(c => `<label class="lim-row"><span class="op-ico">${icon(c.icon)}</span><span class="lim-l">${esc(c.name)}</span><span class="lim-in"><input class="input" name="${c.id}" inputmode="decimal" placeholder="0" value="${val(lim(c.id))}"><i>₺</i></span></label>`).join('')}
+          ${EXPENSE_CATEGORIES.map(c => `<label class="lim-row"><span class="op-ico">${icon(c.icon)}</span><span class="lim-l">${esc(c.name)}</span><span class="lim-in"><input class="input" name="${c.id}" inputmode="decimal" placeholder="0" value="${val(lim(c.id))}"><i>${curSym()}</i></span></label>`).join('')}
         </div>
         <p class="form-error"></p>
         <button class="btn-primary short" type="submit">Сохранить</button>
@@ -244,7 +263,8 @@ export const limits = {
     form.addEventListener('submit', async e => {
       e.preventDefault();
       const err = form.querySelector('.form-error');
-      const read = n => { const v = form.querySelector(`[name="${n}"]`).value.trim(); return v ? parseAmount(v) : 0; };
+      // Лимиты вводятся в основной валюте, хранятся в лирах
+      const read = n => { const v = form.querySelector(`[name="${n}"]`).value.trim(); return v ? toTry(parseAmount(v), baseCurrency()) : 0; };
       const vals = { budget: read('budget') };
       for (const c of EXPENSE_CATEGORIES) vals[c.id] = read(c.id);
       if (Object.values(vals).some(v => isNaN(v) || v < 0)) { err.textContent = 'Проверьте суммы'; return; }

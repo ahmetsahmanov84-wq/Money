@@ -1,15 +1,31 @@
 // Формы: доход, расход, долг; карточка перевода. Поля и порядок — по ТЗ модуля «Главная».
 import { db, STORES } from './db.js';
 import { icon } from './icons.js';
-import { EXPENSE_CATEGORIES } from './categories.js';
-import { money, parseAmount, formatAmountInput, toDateInput, hhmm, fromInputs, longDate, financialDay, isOpenDay } from './format.js';
+import { EXPENSE_CATEGORIES, CATEGORY_ICONS, addCategory, updateCategory, removeCategory } from './categories.js';
+import { money, parseAmount, formatAmountInput, toDateInput, hhmm, fromInputs, longDate, financialDay, isOpenDay, CURRENCIES, baseCurrency, toTry, origLabel } from './format.js';
 import { openSheet, closeSheet, toast, h, esc } from './ui.js';
 
 function fv(form, n) { return form.querySelector(`[name=${n}]`); }
 
-function amountField(value) {
-  return `<div class="field"><label>Сумма</label>
-    <div class="amount-wrap"><input class="input" name="amount" inputmode="decimal" autocomplete="off" placeholder="0" value="${value ? esc(formatAmountInput(String(value).replace('.', ','))) : ''}"><span class="cur">₺</span></div></div>`;
+/** Выбор валюты рядом с суммой: ₺ ₽ $ € */
+export function curSelect(cur = baseCurrency(), name = 'cur') {
+  return `<select class="cur-sel" name="${name}" aria-label="Валюта">${Object.entries(CURRENCIES).map(([k, c]) =>
+    `<option value="${k}"${k === cur ? ' selected' : ''}>${c.sym}</option>`).join('')}</select>`;
+}
+/** Поле суммы. rec — существующая запись: показываем исходную сумму и валюту. */
+export function amountField(rec = null, label = 'Сумма') {
+  const cur = rec ? (rec.currency || 'TRY') : baseCurrency();
+  const value = rec ? (rec.origAmount ?? rec.amount) : '';
+  return `<div class="field"><label>${label}</label>
+    <div class="amount-wrap"><input class="input" name="amount" inputmode="decimal" autocomplete="off" placeholder="0" value="${value ? esc(formatAmountInput(String(value).replace('.', ','))) : ''}">${curSelect(cur)}</div></div>`;
+}
+/** Читает сумму и валюту, переводит в лиры. При неизменной сумме и валюте сохраняет прежний пересчёт. */
+export function readMoney(form, rec = null) {
+  const orig = parseAmount(form.querySelector('[name=amount]').value);
+  const currency = form.querySelector('[name=cur]').value;
+  if (!(orig > 0)) return { amount: NaN };
+  const same = rec && (rec.currency || 'TRY') === currency && (rec.origAmount ?? rec.amount) === orig;
+  return { amount: same ? rec.amount : (currency === 'TRY' ? orig : toTry(orig, currency)), origAmount: orig, currency };
 }
 function titleField(value, placeholder) {
   return `<div class="field"><label>Название</label>
@@ -34,7 +50,7 @@ function wireSeg(form, name) {
   }));
   return () => box.querySelector('.on').dataset.v;
 }
-function wireAmount(form) {
+export function wireAmount(form) {
   const inp = fv(form, 'amount');
   inp.addEventListener('input', () => {
     const pos = inp.value.length - inp.selectionStart;
@@ -59,7 +75,7 @@ export function incomeForm(day, existing = null, opts = {}) {
   const d = existing ? new Date(existing.ts) : stampFor(day);
   const form = h(`<form novalidate>
     ${titleField(existing?.title || opts.title, 'Например: Аренда (Бейликдюзю)')}
-    ${amountField(existing?.amount)}
+    ${amountField(existing)}
     ${dateFields(d)}
     <div class="field"><span class="field-label">Статус</span>${seg('status', [['received', 'Получен'], ['expected', 'Ожидается']], existing?.status || 'received')}</div>
     ${noteField(existing?.note)}
@@ -73,13 +89,13 @@ export function incomeForm(day, existing = null, opts = {}) {
   form.addEventListener('submit', async e => {
     e.preventDefault();
     const title = fv(form, 'title').value.trim();
-    const amount = parseAmount(amountInp.value);
+    const m = readMoney(form, existing); const amount = m.amount;
     const ts = readStamp(form);
     if (!title) { err.textContent = 'Укажите название'; fv(form, 'title').focus(); return; }
     if (!(amount > 0)) { err.textContent = 'Введите сумму больше нуля'; amountInp.focus(); return; }
     if (isNaN(ts)) { err.textContent = 'Укажите дату'; return; }
     await db.put(STORES.operations, {
-      ...(existing || {}), type: 'income', title, amount, ts,
+      ...(existing || {}), type: 'income', title, ...m, ts,
       status: getStatus(), note: fv(form, 'note').value.trim(),
     });
     closeSheet();
@@ -99,19 +115,21 @@ export function expenseForm(day, existing = null, opts = {}) {
   const sel = existing ? existing.categoryId : (opts.categoryId || EXPENSE_CATEGORIES[0].id);
   const dis = readOnly ? ' disabled' : '';
   const form = h(`<form novalidate class="${readOnly ? 'readonly' : ''}">
-    ${readOnly ? `<div class="detail-amt neg">${money(existing.amount, '-')}</div><p class="ro-note">День закрыт — расход доступен только для просмотра</p>` : ''}
+    ${readOnly ? `<div class="detail-amt neg">${money(existing.amount, '-')}</div>${origLabel(existing) ? `<p class="ro-note">Введено: ${origLabel(existing)}</p>` : ''}<p class="ro-note">День закрыт — расход доступен только для просмотра</p>` : ''}
     <div class="field" style="margin-top:.2rem"><span class="field-label">Категория</span><div class="cat-grid">
       ${EXPENSE_CATEGORIES.map(c => `<button type="button" class="cat${c.id === sel ? ' sel' : ''}" data-cat="${c.id}"${dis}><span class="op-ico">${icon(c.icon)}</span>${esc(c.name)}</button>`).join('')}
     </div></div>
     <div class="field"><label>Название / описание</label>
       <input class="input" name="title" maxlength="60" placeholder="Например: Продукты на неделю" value="${esc(existing?.title || '')}"${dis}></div>
-    ${amountField(existing?.amount).replace('autocomplete="off"', 'autocomplete="off"' + dis)}
+    ${amountField(existing).replace('autocomplete="off"', 'autocomplete="off"' + dis).replace('<select', '<select' + dis)}
     <div class="field"><span class="field-label">Дата</span><div class="input static">${isOpenDay(ts0) ? 'Сегодня, ' : ''}${longDate(financialDay(d))}${existing ? ', ' + hhmm(d) : ''}</div></div>
     ${noteField(existing?.note).replace('<textarea', '<textarea' + dis)}
     <p class="form-error"></p>
     ${readOnly ? '' : `<button class="btn-primary${opts.compact ? ' short' : ''}" type="submit">Сохранить</button>`}
     ${existing && !readOnly ? `<button class="btn-danger" type="button" data-del>Удалить операцию</button>` : ''}
+    ${!existing && opts.compact && EXPENSE_CATEGORIES.find(c => c.id === sel)?.custom ? `<button class="btn-ghost wide" type="button" data-editcat>Изменить категорию</button>` : ''}
   </form>`);
+  form.querySelector('[data-editcat]')?.addEventListener('click', () => categoryForm(EXPENSE_CATEGORIES.find(c => c.id === sel)));
   if (!readOnly) {
     form.querySelectorAll('.cat').forEach(b => b.addEventListener('click', () => {
       form.querySelectorAll('.cat').forEach(x => x.classList.toggle('sel', x === b));
@@ -124,10 +142,10 @@ export function expenseForm(day, existing = null, opts = {}) {
       if (existing && !isOpenDay(existing.ts)) { err.textContent = 'День уже закрыт, изменения недоступны'; return; }
       const categoryId = form.querySelector('.cat.sel').dataset.cat;
       const cat = EXPENSE_CATEGORIES.find(c => c.id === categoryId);
-      const amount = parseAmount(amountInp.value);
-      if (!(amount > 0)) { err.textContent = 'Введите сумму больше нуля'; amountInp.focus(); return; }
+      const m = readMoney(form, existing);
+      if (!(m.amount > 0)) { err.textContent = 'Введите сумму больше нуля'; amountInp.focus(); return; }
       await db.put(STORES.operations, {
-        ...(existing || {}), type: 'expense', categoryId, amount,
+        ...(existing || {}), type: 'expense', categoryId, ...m,
         ts: existing ? existing.ts : Date.now(),
         title: fv(form, 'title').value.trim() || cat.name,
         note: fv(form, 'note').value.trim(),
@@ -138,6 +156,46 @@ export function expenseForm(day, existing = null, opts = {}) {
     wireDelete(form, existing, STORES.operations);
   }
   openSheet(existing ? 'Расход' : 'Новый расход', form);
+}
+
+/* ---------- Своя категория расхода ---------- */
+export function categoryForm(existing = null) {
+  let chosen = existing?.icon || 'dots';
+  const form = h(`<form novalidate>
+    <div class="field"><label>Название категории</label>
+      <input class="input" name="cname" maxlength="40" placeholder="Например: Автомобиль" value="${esc(existing?.name || '')}"></div>
+    <div class="field"><span class="field-label">Значок</span><div class="icon-grid">
+      ${CATEGORY_ICONS.map(n => `<button type="button" class="ig${n === chosen ? ' sel' : ''}" data-ic="${n}" aria-label="${n}"><span class="op-ico">${icon(n)}</span></button>`).join('')}
+    </div></div>
+    <p class="form-error"></p>
+    <button class="btn-primary" type="submit">${existing ? 'Сохранить' : 'Добавить категорию'}</button>
+    ${existing ? `<button class="btn-danger" type="button" data-delcat>Удалить категорию</button>` : ''}
+  </form>`);
+  const err = form.querySelector('.form-error');
+  form.querySelectorAll('.ig').forEach(b => b.addEventListener('click', () => {
+    chosen = b.dataset.ic;
+    form.querySelectorAll('.ig').forEach(x => x.classList.toggle('sel', x === b));
+  }));
+  form.addEventListener('submit', async e => {
+    e.preventDefault();
+    const name = fv(form, 'cname').value;
+    const r = existing ? await updateCategory(existing.id, name, chosen) : await addCategory(name, chosen);
+    if (r.error) { err.textContent = r.error; fv(form, 'cname').focus(); return; }
+    closeSheet();
+    toast(existing ? 'Категория сохранена' : `Категория добавлена: ${r.cat.name}`);
+  });
+  const del = form.querySelector('[data-delcat]');
+  del?.addEventListener('click', async () => {
+    const used = (await db.all(STORES.operations)).some(o => o.type === 'expense' && o.categoryId === existing.id);
+    if (used) { err.textContent = 'В этой категории есть расходы. Удалить можно только пустую категорию.'; return; }
+    if (!del.classList.contains('confirm')) { del.classList.add('confirm'); del.textContent = 'Нажмите ещё раз для удаления'; return; }
+    await removeCategory(existing.id);
+    await db.del(STORES.limits, existing.id).catch(() => {});
+    closeSheet();
+    toast('Категория удалена');
+  });
+  openSheet(existing ? 'Категория' : 'Новая категория', form);
+  if (!existing) setTimeout(() => fv(form, 'cname').focus(), 350);
 }
 
 /* ---------- Перевод ---------- */
@@ -169,12 +227,12 @@ export async function transferForm() {
   const err = form.querySelector('.form-error');
   form.addEventListener('submit', async e => {
     e.preventDefault();
-    const amount = parseAmount(amountInp.value);
+    const m = readMoney(form); const amount = m.amount;
     if (!(amount > 0)) { err.textContent = 'Введите сумму больше нуля'; amountInp.focus(); return; }
     const toSavings = getDir() === 'to-savings';
     if (!toSavings && amount > await savingsBalance()) { err.textContent = 'На счёте «Накопление» недостаточно средств'; return; }
     await db.put(STORES.operations, {
-      type: 'transfer', amount, ts: Date.now(),
+      type: 'transfer', ...m, ts: Date.now(),
       from: toSavings ? 'main' : 'savings', to: toSavings ? 'savings' : 'main',
       title: toSavings ? 'Перевод в Накопление' : 'Перевод в Основной',
       note: fv(form, 'note').value.trim(),
@@ -194,7 +252,7 @@ export function debtForm(day, existing = null, opts = {}) {
   const form = h(`<form novalidate>
     <div style="margin-top:.2rem">${seg('direction', [['given', 'Я дал'], ['taken', 'Я взял']], dir)}</div>
     <div class="field"><label>Имя</label><input class="input" name="name" maxlength="40" placeholder="Например: Али" autocomplete="off" value="${esc(existing?.name || '')}"></div>
-    ${amountField(existing?.amount)}
+    ${amountField(existing)}
     <div class="field row2" style="grid-template-columns:1fr 1fr">
       <div><label class="field-label">Дата выдачи</label><input class="input" type="date" name="date" value="${toDateInput(d)}"></div>
       <div><label class="field-label">Плановый возврат</label><input class="input" type="date" name="due" value="${existing?.dueTs ? toDateInput(new Date(existing.dueTs)) : ''}"></div>
@@ -210,7 +268,7 @@ export function debtForm(day, existing = null, opts = {}) {
   form.addEventListener('submit', async e => {
     e.preventDefault();
     const name = fv(form, 'name').value.trim();
-    const amount = parseAmount(amountInp.value);
+    const m = readMoney(form, existing); const amount = m.amount;
     const dateStr = fv(form, 'date').value;
     const dueStr = fv(form, 'due').value;
     const transferred = fv(form, 'transferred').checked;
@@ -227,7 +285,7 @@ export function debtForm(day, existing = null, opts = {}) {
       if (!transferred && returned > 0) { err.textContent = 'По долгу уже есть возвраты'; return; }
     }
     const rec = {
-      ...(existing || {}), direction: getDir(), name, amount, ts, dueTs, transferred,
+      ...(existing || {}), direction: getDir(), name, ...m, ts, dueTs, transferred,
       transferredTs: transferred ? (existing?.transferredTs || Date.now()) : null,
       note: fv(form, 'note').value.trim(),
     };
