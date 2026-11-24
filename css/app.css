@@ -79,7 +79,8 @@ svg.i { width: 1em; height: 1em; display: block; fill: none; stroke: currentColo
   display: grid;
   grid-template-columns: repeat(6, 1fr);
   gap: .1rem;
-  padding: .35rem .45rem calc(.35rem + env(safe-area-inset-bottom));
+  /* меню ниже: заходит в нижнюю безопасную зону, оставляя место для полоски «Домой» */
+  padding: .35rem .45rem max(.35rem, calc(env(safe-area-inset-bottom) - 1.05rem));
   background: linear-gradient(180deg, rgba(255, 246, 242, .92), rgba(255, 241, 235, .96));
   border-top: 1px solid rgba(255, 255, 255, .8);
   box-shadow: 0 -.3rem 1rem rgba(206, 116, 78, .08);
@@ -585,3 +586,10 @@ form.readonly .cat.sel { opacity: 1; }
 .dd-ret .pos small { display: block; font-size: .7rem; color: var(--muted); font-weight: 600; text-align: right; }
 .choice .ch-sp { width: 1em; display: inline-block; }
 .fx-list b { font-size: .9rem; }
+
+/* Подложка под строкой состояния iPhone: прокручиваемое содержимое не наезжает на часы */
+.app::before {
+  content: ""; position: absolute; top: 0; left: 0; right: 0; height: env(safe-area-inset-top); z-index: 6; pointer-events: none;
+  background: linear-gradient(180deg, rgba(253,236,231,.97) 70%, rgba(253,236,231,.85));
+  -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+}
