@@ -1,14 +1,14 @@
 // Экспорт (CSV, PDF) и импорт данных. Работает офлайн, без внешних библиотек.
 import { db, STORES, uid } from './db.js';
-import { EXPENSE_CATEGORIES, addCategory } from './categories.js';
+import { EXPENSE_CATEGORIES, ALL_CATEGORIES, addCategory } from './categories.js';
 import { money, longDate, hhmm, toDateInput, monthRange, monthTitle, pct } from './format.js';
 
 const CSV_HEAD = ['id', 'type', 'date', 'time', 'title', 'category', 'amount', 'status', 'from', 'to', 'note', 'currency', 'original'];
 const CSV_HEAD_OLD = 11; // файлы прошлой версии без столбцов валюты тоже принимаются
 const TYPE_RU = { income: 'Доход', expense: 'Расход', transfer: 'Перевод' };
 
-const catName = id => (EXPENSE_CATEGORIES.find(c => c.id === id) || {}).name || '';
-const catIdByName = n => (EXPENSE_CATEGORIES.find(c => c.name === n || c.id === n) || {}).id;
+const catName = id => (ALL_CATEGORIES.find(c => c.id === id) || {}).name || '';
+const catIdByName = n => (ALL_CATEGORIES.find(c => c.name === n || c.id === n) || {}).id;
 
 /** Сохранить файл: «Поделиться» на iPhone (Файлы, Почта, AirDrop) или обычное скачивание */
 export async function saveFile(blob, name) {
@@ -195,7 +195,7 @@ export async function exportPdf(period = 'month') {
   kv('Баланс', money(inc - exp, inc - exp > 0 ? '+' : inc - exp < 0 ? '-' : ''), inc - exp < 0 ? '#f0301c' : '#1d9a2c');
 
   y += 26; need(40); text('Расходы по категориям', M, 14, 800);
-  for (const cat of EXPENSE_CATEGORIES) kv(cat.name, `${money(byCat[cat.id] || 0)}   ${pct(byCat[cat.id] || 0, exp)}`, '#141414');
+  for (const cat of ALL_CATEGORIES.filter(c => !c.hidden || byCat[c.id])) kv(cat.name, `${money(byCat[cat.id] || 0)}   ${pct(byCat[cat.id] || 0, exp)}`, '#141414');
 
   y += 26; need(40); text('Долги (на дату отчёта)', M, 14, 800);
   const [gT, gR, gO] = debtSum('given'), [tT, tR, tO] = debtSum('taken');

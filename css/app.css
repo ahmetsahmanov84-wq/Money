@@ -593,3 +593,14 @@ form.readonly .cat.sel { opacity: 1; }
   background: linear-gradient(180deg, rgba(253,236,231,.97) 70%, rgba(253,236,231,.85));
   -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
 }
+
+/* Удаление категорий */
+.cat-actions { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; margin-top: .8rem; }
+.cat-actions .add-cat { margin-top: 0; width: 100%; }
+.del-mode { color: var(--red); }
+.del-mode.on { background: var(--red); color: #fff; }
+.cat-hint { margin: .6rem .3rem 0; }
+.crow-del { display: flex; justify-content: center; color: var(--red); font-size: 1.15rem; }
+.crow.confirm { background: #ffe9e5; border-radius: .9rem; }
+.crow.confirm .crow-del { animation: shake .3s; }
+@keyframes shake { 25% { transform: translateX(-2px); } 75% { transform: translateX(2px); } }

@@ -1,7 +1,7 @@
 // Формы: доход, расход, долг; карточка перевода. Поля и порядок — по ТЗ модуля «Главная».
 import { db, STORES } from './db.js';
 import { icon } from './icons.js';
-import { EXPENSE_CATEGORIES, CATEGORY_ICONS, addCategory, updateCategory, removeCategory } from './categories.js';
+import { EXPENSE_CATEGORIES, CATEGORY_ICONS, addCategory, updateCategory, removeCategory, findCategory } from './categories.js';
 import { money, parseAmount, formatAmountInput, toDateInput, hhmm, fromInputs, longDate, financialDay, isOpenDay, CURRENCIES, baseCurrency, toTry, origLabel } from './format.js';
 import { openSheet, closeSheet, toast, h, esc } from './ui.js';
 
@@ -112,12 +112,12 @@ export function expenseForm(day, existing = null, opts = {}) {
   const readOnly = !!existing && !isOpenDay(existing.ts);
   const ts0 = existing ? existing.ts : Date.now();
   const d = new Date(ts0);
-  const sel = existing ? existing.categoryId : (opts.categoryId || EXPENSE_CATEGORIES[0].id);
+  const sel = existing ? existing.categoryId : (opts.categoryId || EXPENSE_CATEGORIES[0]?.id);
   const dis = readOnly ? ' disabled' : '';
   const form = h(`<form novalidate class="${readOnly ? 'readonly' : ''}">
     ${readOnly ? `<div class="detail-amt neg">${money(existing.amount, '-')}</div>${origLabel(existing) ? `<p class="ro-note">Введено: ${origLabel(existing)}</p>` : ''}<p class="ro-note">День закрыт — расход доступен только для просмотра</p>` : ''}
     <div class="field" style="margin-top:.2rem"><span class="field-label">Категория</span><div class="cat-grid">
-      ${EXPENSE_CATEGORIES.map(c => `<button type="button" class="cat${c.id === sel ? ' sel' : ''}" data-cat="${c.id}"${dis}><span class="op-ico">${icon(c.icon)}</span>${esc(c.name)}</button>`).join('')}
+      ${(EXPENSE_CATEGORIES.some(c => c.id === sel) || !findCategory(sel) ? EXPENSE_CATEGORIES : [...EXPENSE_CATEGORIES, findCategory(sel)]).map(c => `<button type="button" class="cat${c.id === sel ? ' sel' : ''}" data-cat="${c.id}"${dis}><span class="op-ico">${icon(c.icon)}</span>${esc(c.name)}</button>`).join('')}
     </div></div>
     <div class="field"><label>Название / описание</label>
       <input class="input" name="title" maxlength="60" placeholder="Например: Продукты на неделю" value="${esc(existing?.title || '')}"${dis}></div>
@@ -140,8 +140,10 @@ export function expenseForm(day, existing = null, opts = {}) {
       e.preventDefault();
       // День мог закрыться, пока форма была открыта
       if (existing && !isOpenDay(existing.ts)) { err.textContent = 'День уже закрыт, изменения недоступны'; return; }
-      const categoryId = form.querySelector('.cat.sel').dataset.cat;
-      const cat = EXPENSE_CATEGORIES.find(c => c.id === categoryId);
+      const selBtn = form.querySelector('.cat.sel');
+      if (!selBtn) { err.textContent = 'Выберите категорию. Если список пуст, добавьте категорию на экране «Категории».'; return; }
+      const categoryId = selBtn.dataset.cat;
+      const cat = findCategory(categoryId) || { name: 'Расход' };
       const m = readMoney(form, existing);
       if (!(m.amount > 0)) { err.textContent = 'Введите сумму больше нуля'; amountInp.focus(); return; }
       await db.put(STORES.operations, {
@@ -156,6 +158,14 @@ export function expenseForm(day, existing = null, opts = {}) {
     wireDelete(form, existing, STORES.operations);
   }
   openSheet(existing ? 'Расход' : 'Новый расход', form);
+}
+
+/* ---------- Удаление категории ---------- */
+// Расходы категории не удаляются: в истории, аналитике и отчётах остаётся её название.
+export async function deleteCategory(id) {
+  const used = (await db.all(STORES.operations)).some(o => o.type === 'expense' && o.categoryId === id);
+  await removeCategory(id, used);
+  await db.del(STORES.limits, id).catch(() => {});
 }
 
 /* ---------- Своя категория расхода ---------- */
@@ -186,11 +196,8 @@ export function categoryForm(existing = null) {
   });
   const del = form.querySelector('[data-delcat]');
   del?.addEventListener('click', async () => {
-    const used = (await db.all(STORES.operations)).some(o => o.type === 'expense' && o.categoryId === existing.id);
-    if (used) { err.textContent = 'В этой категории есть расходы. Удалить можно только пустую категорию.'; return; }
     if (!del.classList.contains('confirm')) { del.classList.add('confirm'); del.textContent = 'Нажмите ещё раз для удаления'; return; }
-    await removeCategory(existing.id);
-    await db.del(STORES.limits, existing.id).catch(() => {});
+    await deleteCategory(existing.id);
     closeSheet();
     toast('Категория удалена');
   });

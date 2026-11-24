@@ -13,45 +13,73 @@ export const BASE_CATEGORIES = [
   { id: 'pocket-usman', name: 'Карманные — Усман', icon: 'wallet' },
 ];
 
-// Общий массив: все экраны импортируют его и видят изменения без перезапуска
+// Общие массивы: все экраны импортируют их и видят изменения без перезапуска.
+// EXPENSE_CATEGORIES — активные категории (список, форма расхода, лимиты).
+// ALL_CATEGORIES — вместе с удалёнными: нужны, чтобы старые расходы сохранили название в истории и отчётах.
 export const EXPENSE_CATEGORIES = [...BASE_CATEGORIES];
+export const ALL_CATEGORIES = [...BASE_CATEGORIES];
 
 // Иконки, из которых можно выбрать значок своей категории
 export const CATEGORY_ICONS = ['cart', 'house', 'car', 'fuel', 'health', 'family', 'shirt', 'book', 'outing', 'wallet', 'cash', 'cap', 'sale', 'briefcase', 'user', 'target', 'trend', 'dots'];
 
 export const isCustom = id => !BASE_CATEGORIES.some(c => c.id === id);
+export const findCategory = id => ALL_CATEGORIES.find(c => c.id === id);
 
-function apply(custom) {
-  EXPENSE_CATEGORIES.length = 0;
-  EXPENSE_CATEGORIES.push(...BASE_CATEGORIES, ...(custom || []).map(c => ({ ...c, custom: true })));
-}
-export async function loadCategories() { apply(await getSetting('customCategories')); }
+let custom = [];      // свои категории {id, name, icon, hidden?}
+let hiddenBase = [];  // id удалённых стандартных категорий
 
-async function saveCustom(list) {
-  apply(list);
-  await setSetting('customCategories', list);
+function apply() {
+  const all = [
+    ...BASE_CATEGORIES.map(c => ({ ...c, hidden: hiddenBase.includes(c.id) })),
+    ...custom.map(c => ({ ...c, custom: true, hidden: !!c.hidden })),
+  ];
+  ALL_CATEGORIES.length = 0; ALL_CATEGORIES.push(...all);
+  EXPENSE_CATEGORIES.length = 0; EXPENSE_CATEGORIES.push(...all.filter(c => !c.hidden));
 }
-const customList = () => EXPENSE_CATEGORIES.filter(c => c.custom).map(({ id, name, icon }) => ({ id, name, icon }));
+export async function loadCategories() {
+  custom = (await getSetting('customCategories')) || [];
+  hiddenBase = (await getSetting('hiddenCategories')) || [];
+  apply();
+}
+async function save() {
+  apply();
+  await setSetting('hiddenCategories', hiddenBase);
+  await setSetting('customCategories', custom);
+}
 const norm = s => s.trim().replace(/\s+/g, ' ');
+const same = (a, b) => a.toLowerCase() === b.toLowerCase();
 
-/** Добавляет свою категорию. Возвращает её или текст ошибки. */
+/** Добавляет категорию. Если так называлась удалённая — возвращает её обратно вместе с историей. */
 export async function addCategory(name, iconName = 'dots') {
   const n = norm(name || '');
   if (!n) return { error: 'Введите название категории' };
-  if (EXPENSE_CATEGORIES.some(c => c.name.toLowerCase() === n.toLowerCase())) return { error: 'Такая категория уже есть' };
+  if (EXPENSE_CATEGORIES.some(c => same(c.name, n))) return { error: 'Такая категория уже есть' };
+  const old = ALL_CATEGORIES.find(c => c.hidden && same(c.name, n));
+  if (old) {
+    if (old.custom) custom = custom.map(c => c.id === old.id ? { ...c, hidden: false, icon: CATEGORY_ICONS.includes(iconName) && iconName !== 'dots' ? iconName : c.icon } : c);
+    else hiddenBase = hiddenBase.filter(id => id !== old.id);
+    await save();
+    return { cat: findCategory(old.id), restored: true };
+  }
   const cat = { id: 'c-' + uid(), name: n, icon: CATEGORY_ICONS.includes(iconName) ? iconName : 'dots' };
-  await saveCustom([...customList(), cat]);
-  return { cat };
+  custom = [...custom, cat];
+  await save();
+  return { cat: findCategory(cat.id) };
 }
 export async function updateCategory(id, name, iconName) {
   const n = norm(name || '');
   if (!n) return { error: 'Введите название категории' };
-  if (EXPENSE_CATEGORIES.some(c => c.id !== id && c.name.toLowerCase() === n.toLowerCase())) return { error: 'Такая категория уже есть' };
-  await saveCustom(customList().map(c => c.id === id ? { ...c, name: n, icon: iconName || c.icon } : c));
+  if (EXPENSE_CATEGORIES.some(c => c.id !== id && same(c.name, n))) return { error: 'Такая категория уже есть' };
+  custom = custom.map(c => c.id === id ? { ...c, name: n, icon: iconName || c.icon } : c);
+  await save();
   return {};
 }
-export async function removeCategory(id) {
-  await saveCustom(customList().filter(c => c.id !== id));
+/** Удаляет категорию из списка. Расходы не удаляются: в истории и отчётах остаётся её название. */
+export async function removeCategory(id, hasExpenses = false) {
+  if (!isCustom(id)) { if (!hiddenBase.includes(id)) hiddenBase = [...hiddenBase, id]; }
+  else if (hasExpenses) custom = custom.map(c => c.id === id ? { ...c, hidden: true } : c);
+  else custom = custom.filter(c => c.id !== id);
+  await save();
 }
 
 export const INCOME_CATEGORIES = [
@@ -64,7 +92,7 @@ export const INCOME_CATEGORIES = [
 
 export function categoryOf(op) {
   if (op.type === 'income') return INCOME_CATEGORIES.find(c => c.id === op.categoryId) || INCOME_CATEGORIES[INCOME_CATEGORIES.length - 1];
-  return EXPENSE_CATEGORIES.find(c => c.id === op.categoryId) || { id: op.categoryId, name: 'Без категории', icon: 'dots' };
+  return findCategory(op.categoryId) || { id: op.categoryId, name: 'Без категории', icon: 'dots' };
 }
 
 /** Иконка операции: для «Топливо» — колонка, как в макете, иначе — иконка категории */

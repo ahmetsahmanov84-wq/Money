@@ -1,7 +1,7 @@
 // Экран «Аналитика» и подробный экран категории. Только просмотр, без добавления расходов.
 import { db, STORES } from '../db.js';
 import { icon, logo } from '../icons.js';
-import { EXPENSE_CATEGORIES } from '../categories.js';
+import { ALL_CATEGORIES } from '../categories.js';
 import { money, longDate, shortDate, hhmm, dayStartOf, financialDay, addDays, monthRange, monthTitle, pct, origLabel, fromTry } from '../format.js';
 import { esc, fitText } from '../ui.js';
 
@@ -170,7 +170,7 @@ export const analytics = {
     be.className = 'sum-val ' + (bal < 0 ? 'neg' : 'pos');
     host.querySelectorAll('.sum-val').forEach(el => fitText(el));
 
-    const parts = EXPENSE_CATEGORIES.map((c, i) => ({ id: c.id, name: c.name, color: COLORS[i] || `hsl(${(i * 47 + 15) % 360} 70% 55%)`, value: byCat[c.id] || 0 }));
+    const parts = ALL_CATEGORIES.map((c, i) => ({ hidden: c.hidden, id: c.id, name: c.name, color: COLORS[i] || `hsl(${(i * 47 + 15) % 360} 70% 55%)`, value: byCat[c.id] || 0 })).filter(x => !x.hidden || x.value);
     $('[data-pie]').innerHTML = donut(parts, exp) + `<div class="pie-center" data-ptotal>${money(exp)}</div>`;
     fitText($('[data-ptotal]'), 0.55);
     $('[data-legend]').innerHTML = parts.map(p => `<li><button data-cat="${p.id}"><i style="background:${p.color}"></i><span class="lg-name">${esc(p.name)}</span><span class="lg-pct">${pct(p.value, exp)}</span></button></li>`).join('');
@@ -198,7 +198,7 @@ export const categoryDetail = {
   id: 'categoryDetail',
   render(host, ctx, params = {}) {
     if (params.catId) Object.assign(detail, params, { scope: 'period' });
-    const cat = EXPENSE_CATEGORIES.find(c => c.id === detail.catId) || EXPENSE_CATEGORIES[0];
+    const cat = ALL_CATEGORIES.find(c => c.id === detail.catId) || ALL_CATEGORIES[0];
     host.innerHTML = `<section class="screen cat-detail">
       <header class="hero small">
         <div class="brand"><button class="back" aria-label="Назад">${icon('chevL')}</button>${logo()}<span>Money Tracker</span></div>
